@@ -3,6 +3,7 @@
 This tool is designed to **fix the issue of missing `appmanifest_xxxxx.acf` files** in the Steam library. When the Steam client loses track of installed games, but the game folders still exist in `steamapps/common`, this tool automatically matches the AppID based on the game folder names and generates the necessary `.acf` files, allowing Steam to recognize the games again.
 
 The project offers two versions: the **Python Local Version** and the **Web Browser Version**.
+<img width="1178" height="1113" alt="image" src="https://github.com/user-attachments/assets/a1d56339-3a47-457b-9688-da43baa6cac9" />
 
 ---
 
