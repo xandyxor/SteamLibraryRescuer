@@ -5,39 +5,51 @@ import requests
 import json 
 from typing import Dict, Any, Optional
 
-# --- 1. 配置 ---
-STEAM_ROOT = r"D:\Program Files (x86)\Steam"
+# --- 1. Configuration ---
+STEAM_ROOT = r"G:\SteamLibrary"
 STEAM_APPS_DIR = os.path.join(STEAM_ROOT, "steamapps")
 COMMON_DIR = os.path.join(STEAM_APPS_DIR, "common")
 APPID_JSON_URL = "https://raw.githubusercontent.com/jsnli/steamappidlist/master/data/games_appid.json"
 ACF_ENCODING = 'ascii' 
 
-# --- 2. 核心函數定義 ---
+# --- 2. Core Function Definitions ---
 
 def confirm_step(message: str) -> bool:
-    """提示使用者確認是否繼續下一步"""
+    """Prompt the user to confirm whether to proceed to the next step"""
     print("-" * 50)
-    response = input(f"{message} 請輸入 'y' 繼續，或輸入其他鍵退出: ").lower()
+    response = input(f"{message} Please enter 'y' to continue, or any other key to exit: ").lower()
     print("-" * 50)
     return response == 'y'
 
 def normalize_name(name: str) -> str:
-    """標準化遊戲名稱以進行模糊匹配"""
+    """Normalize game names for fuzzy matching"""
     normalized = name.upper()
     normalized = re.sub(r'\s', '', normalized)
-    normalized = re.sub(r'[-_:.,()]', '', normalized)
+    normalized = re.sub(r'[^A-Z0-9]', '', normalized)
     return normalized
 
+def get_directory_size(path: str) -> int:
+    """Calculate the total size of a directory recursively"""
+    total_size = 0
+    for dirpath, dirnames, filenames in os.walk(path):
+        for f in filenames:
+            fp = os.path.join(dirpath, f)
+            try:
+                total_size += os.path.getsize(fp)
+            except OSError:
+                pass
+    return total_size
+
 def parse_acf_content(content: str) -> Dict[str, str]:
-    """使用正則表達式從 VDF 內容中提取關鍵鍵值對"""
+    """Extract key-value pairs from VDF content using regular expressions"""
     data = {}
-    matches = re.findall(r'"(appid|installdir|name|StateFlags|LastUpdated|BytesToDownload|BytesDownloaded|BytesToStage|BytesStaged|AutoUpdateBehavior|AllowOtherDownloadsWhileRunning|ScheduledAutoUpdate)"\s+"([^"]*)"', content)
+    matches = re.findall(r'"(appid|installdir|name|StateFlags|LastUpdated|SizeOnDisk|BytesToDownload|BytesDownloaded|BytesToStage|BytesStaged|AutoUpdateBehavior|AllowOtherDownloadsWhileRunning|ScheduledAutoUpdate)"\s+"([^"]*)"', content)
     for key, value in matches:
         data[key] = value
     return data
 
 def build_acf_content(data: Dict[str, Any]) -> str:
-    """從字典資料建立格式化的 ACF/VDF 內容"""
+    """Build formatted ACF/VDF content from dictionary data"""
     content_lines = ['"AppState"', '{']
     app_state = data.get('AppState', {})
     
@@ -49,12 +61,12 @@ def build_acf_content(data: Dict[str, Any]) -> str:
     return "\n".join(content_lines)
 
 def find_or_create_template() -> Optional[Dict[str, Any]]:
-    """尋找現有的 ACF 檔案作為範本，否則從零建立"""
-    print("-> 正在嘗試尋找現有的 ACF 檔案作為範本...")
+    """Find an existing ACF file as a template, otherwise create from scratch"""
+    print("-> Attempting to find an existing ACF file as a template...")
     
     acf_files = [f for f in os.listdir(STEAM_APPS_DIR) if f.startswith('appmanifest_') and f.endswith('.acf')]
     
-    # --- 嘗試讀取現有範本 ---
+    # --- Attempt to read existing template ---
     if acf_files:
         template_file = acf_files[0]
         template_path = os.path.join(STEAM_APPS_DIR, template_file)
@@ -69,7 +81,7 @@ def find_or_create_template() -> Optional[Dict[str, Any]]:
             template_installdir = parsed_data.get('installdir')
             
             if template_appid and template_installdir:
-                print(f"✅ 成功找到並解析現有範本 ACF 檔案: {template_file}")
+                print(f"✅ Successfully found and parsed existing template ACF file: {template_file}")
                 return {
                     'path': template_path, 
                     'appid': template_appid, 
@@ -78,12 +90,12 @@ def find_or_create_template() -> Optional[Dict[str, Any]]:
                     'content': content
                 }
             else:
-                print(f"❌ 錯誤: 無法從範本 {template_file} 中提取 AppID 或 Installdir。嘗試從零建立。")
+                print(f"❌ Error: Unable to extract AppID or Installdir from template {template_file}. Attempting to create from scratch.")
         except Exception as e:
-            print(f"❌ 錯誤: 無法讀取範本檔案 {template_file}. 嘗試從零建立. 錯誤訊息: {e}")
+            print(f"❌ Error: Unable to read template file {template_file}. Attempting to create from scratch. Error message: {e}")
 
-    # --- 找不到或解析失敗，從零開始建立 ---
-    print("⚠️ 警告: 找不到有效的 ACF 範本，將自動生成一個通用範本。")
+    # --- Not found or parsing failed, create from scratch ---
+    print("⚠️ Warning: No valid ACF template found, will automatically generate a generic template.")
     
     template_appid = "999999" 
     template_installdir = "GenericTemplate"
@@ -120,7 +132,7 @@ def find_or_create_template() -> Optional[Dict[str, Any]]:
         with open(template_path, 'w', encoding=ACF_ENCODING) as f:
             f.write(base_content)
         
-        print(f"✅ 已創建臨時通用範本: {temp_acf_name}")
+        print(f"✅ Temporary generic template created: {temp_acf_name}")
         return {
             'path': template_path, 
             'appid': template_appid, 
@@ -129,13 +141,13 @@ def find_or_create_template() -> Optional[Dict[str, Any]]:
             'content': base_content
         }
     except Exception as e:
-        print(f"❌ 錯誤: 無法建立臨時 ACF 檔案。請檢查權限。錯誤訊息: {e}")
+        print(f"❌ Error: Unable to create temporary ACF file. Please check permissions. Error message: {e}")
         return None
 
 def download_and_map_appids() -> Optional[Dict[str, str]]:
-    """下載 AppID JSON 清單並建立映射表"""
-    print("\n=== [步驟 2/3] 下載 AppID 清單並建立映射表 (JSON) ===")
-    print("-> 正在從 GitHub 下載最新的 AppID JSON 清單...")
+    """Download AppID JSON list and create mapping table"""
+    print("\n=== [Step 2/3] Download AppID list and create mapping table (JSON) ===")
+    print("-> Downloading the latest AppID JSON list from GitHub...")
     
     try:
         response = requests.get(APPID_JSON_URL, timeout=10)
@@ -144,7 +156,7 @@ def download_and_map_appids() -> Optional[Dict[str, str]]:
         json_data = response.json()
         app_id_map = {}
         
-        # 處理列表結構: [{"appid": ..., "name": ...}, ...]
+        # Handle list structure: [{"appid": ..., "name": ...}, ...]
         if isinstance(json_data, list):
             for item in json_data:
                 if isinstance(item, dict) and 'appid' in item and 'name' in item:
@@ -156,29 +168,29 @@ def download_and_map_appids() -> Optional[Dict[str, str]]:
                         app_id_map[normalized_name] = appid_str
             
         elif isinstance(json_data, dict):
-            # 處理字典結構: {appid: name}
+            # Handle dictionary structure: {appid: name}
             for appid_str, name_str in json_data.items():
                 if appid_str.isdigit() and name_str:
                     normalized_name = normalize_name(name_str)
                     app_id_map[normalized_name] = appid_str
         
         else:
-            print("❌ 錯誤: 下載的 JSON 數據格式無法識別 (既非字典也非列表)。")
+            print("❌ Error: Downloaded JSON data format unrecognized (neither dictionary nor list).")
             return None
 
-        print(f"✅ AppID 清單下載並解析完成。共載入 {len(app_id_map)} 個項目。")
+        print(f"✅ AppID list download and parsing completed. Loaded {len(app_id_map)} items.")
         return app_id_map
 
     except requests.exceptions.RequestException as e:
-        print(f"❌ 錯誤: 獲取 AppID 清單失敗。請檢查網路連線。錯誤訊息: {e}")
+        print(f"❌ Error: Failed to retrieve AppID list. Please check network connection. Error message: {e}")
         return None
     except json.JSONDecodeError as e:
-        print(f"❌ 錯誤: JSON 解析失敗。數據格式不正確。錯誤訊息: {e}")
+        print(f"❌ Error: JSON parsing failed. Data format incorrect. Error message: {e}")
         return None
 
 def batch_repair_and_write(game_map: Dict[str, str], template_info: Dict[str, Any]) -> bool:
-    """批量修復 common 資料夾中的遊戲"""
-    print("\n=== [步驟 3/3] 掃描遊戲並創建 ACF 檔案 ===")
+    """Batch repair games in the common folder"""
+    print("\n=== [Step 3/3] Scan games and create ACF files ===")
     
     template_appid = template_info['appid']
     template_installdir = template_info['installdir']
@@ -188,12 +200,12 @@ def batch_repair_and_write(game_map: Dict[str, str], template_info: Dict[str, An
 
     try:
         game_folders = [f for f in os.listdir(COMMON_DIR) if os.path.isdir(os.path.join(COMMON_DIR, f))]
-        print(f"-> 在 common 資料夾中找到 {len(game_folders)} 個遊戲資料夾...")
+        print(f"-> Found {len(game_folders)} game folders in the common directory...")
     except FileNotFoundError:
-        print(f"❌ 錯誤: 找不到 common 資料夾: {COMMON_DIR}")
+        print(f"❌ Error: Common folder not found: {COMMON_DIR}")
         return False
     except PermissionError:
-        print("❌ 錯誤: 沒有權限讀取 common 資料夾。請以管理員身份運行。")
+        print("❌ Error: No permission to read common folder. Please run as administrator.")
         return False
 
     current_unix_time = str(int(time.time()))
@@ -203,92 +215,97 @@ def batch_repair_and_write(game_map: Dict[str, str], template_info: Dict[str, An
         target_appid = game_map.get(normalized_folder_name)
 
         if not target_appid:
-            # print(f"   ⚠️ 遊戲 '{folder_name}' 找不到 AppID，跳過。")
-            continue # 為了保持輸出簡潔，只輸出修復成功的項目
+            # print(f"   ⚠️ Game '{folder_name}' AppID not found, skipping.")
+            continue # To keep output concise, only output successfully repaired items
 
         target_acf_file = os.path.join(STEAM_APPS_DIR, f"appmanifest_{target_appid}.acf")
 
         if os.path.exists(target_acf_file):
             continue
 
-        print(f"   🛠️ 修復中: '{folder_name}' (AppID: {target_appid})...")
+        print(f"   🛠️ Repairing: '{folder_name}' (AppID: {target_appid})...")
+
+        # Calculate actual size on disk
+        game_path = os.path.join(COMMON_DIR, folder_name)
+        size_on_disk = str(get_directory_size(game_path))
 
         try:
             new_content = template_content
             
-            # 2. 替換關鍵欄位 (使用正則表達式進行文本替換)
+            # 2. Replace key fields (using regex for text replacement)
             new_content = re.sub(r'("appid"\s+)".*?"', r'\1"' + target_appid + '"', new_content)
             new_content = re.sub(r'("installdir"\s+)".*?"', r'\1"' + folder_name + '"', new_content)
             new_content = re.sub(r'("name"\s+)".*?"', r'\1"' + folder_name + '"', new_content)
+            new_content = re.sub(r'("SizeOnDisk"\s+)".*?"', r'\1"' + size_on_disk + '"', new_content)
             
             new_content = re.sub(r'("StateFlags"\s+)".*?"', r'\1"4"', new_content)
             new_content = re.sub(r'("LastUpdated"\s+)".*?"', r'\1"' + current_unix_time + '"', new_content)
             
-            # 確保下載/階段計數為 0
+            # Ensure download/stage counts are 0
             new_content = re.sub(r'("BytesToDownload"\s+)".*?"', r'\1"0"', new_content)
             new_content = re.sub(r'("BytesDownloaded"\s+)".*?"', r'\1"0"', new_content)
             new_content = re.sub(r'("BytesToStage"\s+)".*?"', r'\1"0"', new_content)
             new_content = re.sub(r'("BytesStaged"\s+)".*?"', r'\1"0"', new_content)
 
-            # 3. 寫入目標 ACF 檔案
+            # 3. Write target ACF file
             with open(target_acf_file, 'w', encoding=ACF_ENCODING) as f:
                 f.write(new_content)
             
             repaired_count += 1
-            print("   👍 修復成功。")
+            print("   👍 Repair successful.")
 
         except Exception as e:
-            print(f"   ❌ 修復 '{folder_name}' 時發生嚴重錯誤: {e}")
+            print(f"   ❌ Serious error occurred while repairing '{folder_name}': {e}")
 
-    # 流程總結與清理
+    # Process summary and cleanup
     if template_info['source'] == 'GeneratedTemplate':
         try:
             os.remove(template_info['path'])
-            print("✅ 已清理臨時通用範本文件。")
+            print("✅ Temporary generic template file cleaned up.")
         except Exception as e:
-            print(f"❌ 清理臨時範本失敗，請手動刪除: {template_info['path']}")
+            print(f"❌ Failed to clean up temporary template, please manually delete: {template_info['path']}")
 
-    print(f"\n🌟 批次修復完成！成功創建/修復 {repaired_count} 個 ACF 檔案。")
+    print(f"\n🌟 Batch repair completed! Successfully created/repaired {repaired_count} ACF files.")
     return True
 
-# --- 3. 主要執行區 ---
+# --- 3. Main Execution Area ---
 if __name__ == "__main__":
     print("========================================================")
-    print("           Steam ACF 檔案自動修復工具 (Python)")
+    print("           Steam ACF File Auto-Repair Tool (Python)")
     print("========================================================")
 
-    # 步驟 1: 初始化
-    print("\n=== [步驟 1/3] 初始化與設定路徑 ===")
+    # Step 1: Initialization
+    print("\n=== [Step 1/3] Initialization and Path Setup ===")
     
     if not os.path.exists(STEAM_APPS_DIR):
-        print(f"❌ 錯誤：找不到 Steam 應用程式目錄: {STEAM_APPS_DIR}")
+        print(f"❌ Error: Steam applications directory not found: {STEAM_APPS_DIR}")
         exit(1)
     
     template_info = find_or_create_template()
     if not template_info:
         exit(1)
         
-    if not confirm_step("步驟 1 完成。已確認 Steam 路徑並準備好 ACF 範本。"):
+    if not confirm_step("Step 1 completed. Steam path confirmed and ACF template prepared."):
         exit(0)
 
 
-    # 步驟 2: 下載映射表
+    # Step 2: Download mapping table
     game_map = download_and_map_appids()
     if not game_map:
         exit(1)
 
-    print(f"✅ AppID 清單下載並解析完成。共載入 {len(game_map)} 個項目。")
-    if not confirm_step("步驟 2 完成。已成功下載並建立 AppID 映射表。"):
+    print(f"✅ AppID list download and parsing completed. Loaded {len(game_map)} items.")
+    if not confirm_step("Step 2 completed. Successfully downloaded and created AppID mapping table."):
         exit(0)
 
 
-    # 步驟 3: 執行修復
+    # Step 3: Execute repair
     if batch_repair_and_write(game_map, template_info):
         print("\n========================================================")
-        print("   🥳 所有步驟已成功完成！")
-        print("   1. 請立即**完全退出** Steam 客戶端。")
-        print("   2. 重新啟動 Steam，所有遊戲將顯示為『已安裝』狀態。")
-        print("   3. 對這些遊戲點擊右鍵執行『驗證遊戲檔案的完整性』，完成最終修復。")
+        print("   🥳 All steps completed successfully!")
+        print("   1. Please **completely exit** the Steam client immediately.")
+        print("   2. Restart Steam, all games will show as 'Installed' status.")
+        print("   3. Right-click these games and run 'Verify Integrity of Game Files' to complete the final repair.")
         print("========================================================")
     else:
-        print("\n❌ 運行失敗，請檢查上方錯誤訊息並重新嘗試。")
+        print("\n❌ Run failed, please check the error messages above and try again.")
